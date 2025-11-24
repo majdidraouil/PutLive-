@@ -1,0 +1,94 @@
+version: "3.0"
+
+server:
+  domain: "stream.example.com"
+  http_port: 3000
+  https_enabled: true
+  ssl_cert: "/etc/letsencrypt/live/stream.example.com/fullchain.pem"
+  ssl_key: "/etc/letsencrypt/live/stream.example.com/privkey.pem"
+
+streaming:
+  rtmp_port: 1935
+  hls_port: 8080
+  max_concurrent_streams: 3
+  default_quality: "480p"
+  enable_recording: false
+  recording_path: "/var/lib/putlive/recordings"
+  
+  qualities:
+    - name: "144p"
+      resolution: "256x144"
+      bitrate: "200k"
+      fps: 15
+      audio_bitrate: "32k"
+    - name: "480p"
+      resolution: "854x480"
+      bitrate: "1200k"
+      fps: 30
+      audio_bitrate: "96k"
+    - name: "720p"
+      resolution: "1280x720"
+      bitrate: "2500k"
+      fps: 30
+      audio_bitrate: "128k"
+      enabled: false
+
+  hls:
+    segment_duration: 2
+    playlist_window: 6
+    cleanup_enabled: true
+    tmpfs_path: "/dev/shm/srs"
+    tmpfs_max_size: "500M"
+
+authentication:
+  jwt_secret: "CHANGE_ME_RANDOM_64_CHARS"
+  token_expiry: "24h"
+  require_auth: true
+  default_admin_user: "admin"
+  default_admin_pass: "CHANGE_ME"
+
+database:
+  type: "sqlite"
+  path: "/var/lib/putlive/database/putlive.db"
+  backup_enabled: true
+  backup_interval: "6h"
+  backup_retention: "7d"
+
+monitoring:
+  prometheus_enabled: true
+  prometheus_port: 9090
+  metrics_interval: "15s"
+
+security:
+  rate_limit:
+    enabled: true
+    requests_per_minute: 100
+    burst: 20
+  
+  cors:
+    enabled: true
+    allowed_origins:
+      - "https://stream.example.com"
+
+reliability:
+  swap:
+    enabled: true
+    size: "2G"
+  
+  log_rotation:
+    enabled: true
+    max_size: "100M"
+    retention_days: 7
+    compress: true
+  
+  ffmpeg_cleanup:
+    enabled: true
+    interval: "5m"
+  
+  watchdog:
+    srs_timeout: "30s"
+    api_timeout: "15s"
+
+scheduler:
+  enabled: true
+  check_interval: "1m"
