@@ -1,0 +1,233 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Dashboard - PutLive</title>
+    <link rel="stylesheet" href="/assets/css/style.css">
+    <link href='https://cdn.jsdelivr.net/npm/fullcalendar@6.1.10/index.global.min.css' rel='stylesheet' />
+    <script src="https://cdn.jsdelivr.net/npm/hls.js@latest"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+    <script src='https://cdn.jsdelivr.net/npm/fullcalendar@6.1.10/index.global.min.js'></script>
+</head>
+<body>
+    <div class="dashboard-container">
+        <aside class="sidebar">
+            <div class="sidebar-header">
+                <h2>🎥 PutLive</h2>
+                <p id="userGreeting">Admin</p>
+            </div>
+            <nav class="sidebar-nav">
+                <a href="#overview" class="nav-item active" data-tab="overview">
+                    <span>📊</span> Overview
+                </a>
+                <a href="#stream" class="nav-item" data-tab="stream">
+                    <span>📡</span> Stream Control
+                </a>
+                <a href="#videos" class="nav-item" data-tab="videos">
+                    <span>🎬</span> Video Library
+                </a>
+                <a href="#schedule" class="nav-item" data-tab="schedule">
+                    <span>📅</span> Scheduler
+                </a>
+                <a href="#analytics" class="nav-item" data-tab="analytics">
+                    <span>📈</span> Analytics
+                </a>
+                <a href="#system" class="nav-item" data-tab="system">
+                    <span>⚙️</span> System Health
+                </a>
+            </nav>
+            <div class="sidebar-footer">
+                <a href="/" class="btn-secondary">← Home</a>
+                <a href="#" id="logoutBtn" class="btn-danger">Logout</a>
+            </div>
+        </aside>
+
+        <main class="dashboard-main">
+            <!-- Overview Tab -->
+            <section id="tab-overview" class="tab-content active">
+                <h2>Dashboard Overview</h2>
+
+                <div class="preview-container">
+                    <h3>Live Preview (144p)</h3>
+                    <div class="preview-box">
+                        <video id="previewPlayer" muted autoplay></video>
+                        <div class="preview-overlay" id="previewOverlay">
+                            <p>No stream active</p>
+                        </div>
+                        <div class="preview-info">
+                            <span id="previewBitrate">0 Kbps</span> | 
+                            <span id="previewFps">0 fps</span>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="stats-grid">
+                    <div class="stat-card">
+                        <h3>Current Viewers</h3>
+                        <div class="stat-value" id="currentViewers">0</div>
+                    </div>
+                    <div class="stat-card">
+                        <h3>Peak Viewers (24h)</h3>
+                        <div class="stat-value" id="peakViewers24h">0</div>
+                    </div>
+                    <div class="stat-card">
+                        <h3>Total Watch Time</h3>
+                        <div class="stat-value" id="totalWatchTime">0h</div>
+                    </div>
+                    <div class="stat-card">
+                        <h3>Stream Uptime</h3>
+                        <div class="stat-value" id="streamUptime">0:00:00</div>
+                    </div>
+                </div>
+
+                <div class="chart-container">
+                    <h3>Viewer Count (Last 24h)</h3>
+                    <canvas id="viewerChart"></canvas>
+                </div>
+            </section>
+
+            <!-- Stream Control Tab -->
+            <section id="tab-stream" class="tab-content">
+                <h2>Stream Control</h2>
+
+                <div class="stream-controls">
+                    <div class="control-group">
+                        <label>Stream Status:</label>
+                        <div class="status-badge" id="streamStatusBadge">Offline</div>
+                    </div>
+
+                    <div class="control-group">
+                        <label>Start Scheduled Stream:</label>
+                        <select id="videoSelect">
+                            <option value="">Select video...</option>
+                        </select>
+                        <button onclick="startStream()" class="btn-primary">Start Stream</button>
+                        <button onclick="stopStream()" class="btn-danger">Stop Stream</button>
+                    </div>
+
+                    <div class="control-group">
+                        <label>Quality:</label>
+                        <select id="streamQuality">
+                            <option value="144p">144p (Preview)</option>
+                            <option value="480p" selected>480p (Standard)</option>
+                            <option value="720p">720p (HD)</option>
+                        </select>
+                    </div>
+
+                    <div class="control-group">
+                        <label>
+                            <input type="checkbox" id="loopStream">
+                            Loop video continuously
+                        </label>
+                    </div>
+                </div>
+
+                <div class="stream-info-panel">
+                    <h3>Stream Information</h3>
+                    <div class="info-grid">
+                        <div><strong>RTMP URL:</strong></div>
+                        <div><input type="text" id="rtmpUrl" readonly></div>
+                        <div><strong>Stream Key:</strong></div>
+                        <div><input type="text" id="streamKeyInput" readonly></div>
+                    </div>
+                </div>
+            </section>
+
+            <!-- Video Library Tab -->
+            <section id="tab-videos" class="tab-content">
+                <h2>Video Library</h2>
+
+                <div class="upload-section">
+                    <h3>Upload New Video</h3>
+                    <form id="uploadForm">
+                        <input type="text" id="videoTitle" placeholder="Video Title" required>
+                        <textarea id="videoDescription" placeholder="Description (optional)"></textarea>
+                        <input type="file" id="videoFile" accept="video/*" required>
+                        <button type="submit" class="btn-primary">Upload</button>
+                    </form>
+                    <div id="uploadProgress" style="display:none;">
+                        <progress id="progressBar" value="0" max="100"></progress>
+                        <span id="progressText">0%</span>
+                    </div>
+                </div>
+
+                <div class="video-grid" id="videoGrid">
+                    <!-- Videos will be loaded here -->
+                </div>
+            </section>
+
+            <!-- Scheduler Tab -->
+            <section id="tab-schedule" class="tab-content">
+                <h2>Stream Scheduler</h2>
+                <div id="calendar"></div>
+            </section>
+
+            <!-- Analytics Tab -->
+            <section id="tab-analytics" class="tab-content">
+                <h2>Analytics</h2>
+                <div class="chart-container">
+                    <h3>Bandwidth Usage</h3>
+                    <canvas id="bandwidthChart"></canvas>
+                </div>
+                <div class="analytics-table">
+                    <h3>Recent Events</h3>
+                    <table id="analyticsTable">
+                        <thead>
+                            <tr>
+                                <th>Timestamp</th>
+                                <th>Event</th>
+                                <th>Viewers</th>
+                            </tr>
+                        </thead>
+                        <tbody id="analyticsBody"></tbody>
+                    </table>
+                </div>
+            </section>
+
+            <!-- System Health Tab -->
+            <section id="tab-system" class="tab-content">
+                <h2>System Health</h2>
+                
+                <div class="health-grid">
+                    <div class="health-card">
+                        <h3>CPU Usage</h3>
+                        <div class="gauge" id="cpuGauge">0%</div>
+                    </div>
+                    <div class="health-card">
+                        <h3>Memory Usage</h3>
+                        <div class="gauge" id="memGauge">0%</div>
+                    </div>
+                    <div class="health-card">
+                        <h3>Disk Usage</h3>
+                        <div class="gauge" id="diskGauge">0%</div>
+                    </div>
+                    <div class="health-card">
+                        <h3>Network I/O</h3>
+                        <div class="gauge" id="networkGauge">0 Mbps</div>
+                    </div>
+                </div>
+
+                <div class="service-status">
+                    <h3>Services</h3>
+                    <div class="service-item">
+                        <span>SRS Media Server</span>
+                        <span class="status-badge" id="srsStatus">Checking...</span>
+                    </div>
+                    <div class="service-item">
+                        <span>API Server</span>
+                        <span class="status-badge" id="apiStatus">Checking...</span>
+                    </div>
+                    <div class="service-item">
+                        <span>Database</span>
+                        <span class="status-badge" id="dbStatus">Checking...</span>
+                    </div>
+                </div>
+            </section>
+        </main>
+    </div>
+
+    <script src="/assets/js/app.js"></script>
+    <script src="/assets/js/dashboard.js"></script>
+</body>
+</html>
