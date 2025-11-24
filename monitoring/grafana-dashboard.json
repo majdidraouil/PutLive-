@@ -1,0 +1,78 @@
+{
+  "dashboard": {
+    "title": "PutLive Production Dashboard",
+    "tags": ["putlive", "streaming"],
+    "timezone": "browser",
+    "panels": [
+      {
+        "id": 1,
+        "title": "Stream Status",
+        "type": "stat",
+        "targets": [
+          {
+            "expr": "putlive_stream_active"
+          }
+        ],
+        "fieldConfig": {
+          "defaults": {
+            "mappings": [
+              {"value": 0, "text": "Offline"},
+              {"value": 1, "text": "Online"}
+            ],
+            "thresholds": {
+              "steps": [
+                {"value": 0, "color": "red"},
+                {"value": 1, "color": "green"}
+              ]
+            }
+          }
+        }
+      },
+      {
+        "id": 2,
+        "title": "Current Viewers",
+        "type": "graph",
+        "targets": [
+          {
+            "expr": "putlive_stream_viewers_total"
+          }
+        ]
+      },
+      {
+        "id": 3,
+        "title": "CPU Usage",
+        "type": "graph",
+        "targets": [
+          {
+            "expr": "100 - (avg by(instance) (irate(node_cpu_seconds_total{mode=\"idle\"}[5m])) * 100)"
+          }
+        ]
+      },
+      {
+        "id": 4,
+        "title": "Memory Usage",
+        "type": "graph",
+        "targets": [
+          {
+            "expr": "node_memory_MemTotal_bytes - node_memory_MemAvailable_bytes"
+          }
+        ]
+      },
+      {
+        "id": 5,
+        "title": "FFmpeg Processes",
+        "type": "stat",
+        "targets": [
+          {
+            "expr": "putlive_ffmpeg_processes_running"
+          }
+        ]
+      }
+    ],
+    "refresh": "10s",
+    "time": {
+      "from": "now-6h",
+      "to": "now"
+    }
+  }
+}
