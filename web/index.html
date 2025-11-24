@@ -1,0 +1,221 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>PutLive - Live Streaming Platform</title>
+    <link rel="stylesheet" href="/assets/css/style.css">
+    <script src="https://cdn.jsdelivr.net/npm/hls.js@latest"></script>
+</head>
+<body>
+    <div class="container">
+        <header>
+            <div class="logo">
+                <h1>🎥 PutLive</h1>
+                <p>Enterprise Live Streaming</p>
+            </div>
+            <nav>
+                <a href="/">Home</a>
+                <a href="/dashboard.html" id="dashboardLink" style="display:none;">Dashboard</a>
+                <a href="/login.html" id="loginLink">Login</a>
+                <a href="#" id="logoutLink" style="display:none;">Logout</a>
+            </nav>
+        </header>
+
+        <main>
+            <section class="hero">
+                <h2>Watch Live Stream</h2>
+                <div class="stream-status" id="streamStatus">
+                    <span class="status-indicator offline"></span>
+                    <span id="statusText">Stream Offline</span>
+                    <span id="viewerCount" style="display:none;"></span>
+                </div>
+            </section>
+
+            <section class="player-section">
+                <div class="video-container">
+                    <video id="videoPlayer" controls></video>
+                    <div class="player-overlay" id="playerOverlay">
+                        <p>Stream is currently offline</p>
+                        <p>Please check back later</p>
+                    </div>
+                </div>
+                
+                <div class="quality-selector" id="qualitySelector" style="display:none;">
+                    <label>Quality:</label>
+                    <select id="qualitySelect">
+                        <option value="auto">Auto</option>
+                        <option value="720p">720p HD</option>
+                        <option value="480p">480p SD</option>
+                        <option value="144p">144p Preview</option>
+                    </select>
+                </div>
+
+                <div class="stream-info" id="streamInfo" style="display:none;">
+                    <div class="info-item">
+                        <strong>Bitrate:</strong>
+                        <span id="bitrate">-</span>
+                    </div>
+                    <div class="info-item">
+                        <strong>Resolution:</strong>
+                        <span id="resolution">-</span>
+                    </div>
+                    <div class="info-item">
+                        <strong>FPS:</strong>
+                        <span id="fps">-</span>
+                    </div>
+                </div>
+            </section>
+
+            <section class="instructions">
+                <h3>📡 How to Stream (OBS/Streamlabs)</h3>
+                <div class="rtmp-info">
+                    <div class="rtmp-box">
+                        <label>RTMP Server:</label>
+                        <input type="text" id="rtmpServer" value="rtmp://your-server.com/live" readonly>
+                        <button onclick="copyToClipboard('rtmpServer')">Copy</button>
+                    </div>
+                    <div class="rtmp-box">
+                        <label>Stream Key:</label>
+                        <input type="text" id="streamKey" value="your-stream-key" readonly>
+                        <button onclick="copyToClipboard('streamKey')">Copy</button>
+                    </div>
+                </div>
+                
+                <div class="obs-settings">
+                    <h4>OBS Settings:</h4>
+                    <ul>
+                        <li>Encoder: x264</li>
+                        <li>Bitrate: 1200-2500 Kbps (for 480p-720p)</li>
+                        <li>Keyframe Interval: 2 seconds</li>
+                        <li>Preset: veryfast</li>
+                        <li>Profile: main</li>
+                    </ul>
+                </div>
+            </section>
+
+            <section class="stats">
+                <h3>📊 Platform Stats</h3>
+                <div class="stats-grid">
+                    <div class="stat-card">
+                        <div class="stat-value" id="totalViewers">0</div>
+                        <div class="stat-label">Total Viewers</div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="stat-value" id="uptime">99.9%</div>
+                        <div class="stat-label">Uptime</div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="stat-value" id="peakViewers">0</div>
+                        <div class="stat-label">Peak Viewers</div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="stat-value">24/7</div>
+                        <div class="stat-label">Availability</div>
+                    </div>
+                </div>
+            </section>
+        </main>
+
+        <footer>
+            <p>&copy; 2024 PutLive. Enterprise Live Streaming Platform.</p>
+            <p>Powered by SRS Media Server | Built with ❤️</p>
+        </footer>
+    </div>
+
+    <script src="/assets/js/app.js"></script>
+    <script>
+        // Initialize player on page load
+        document.addEventListener('DOMContentLoaded', function() {
+            initializePlayer();
+            checkStreamStatus();
+            checkAuth();
+            
+            // Update status every 5 seconds
+            setInterval(checkStreamStatus, 5000);
+        });
+
+        function initializePlayer() {
+            const video = document.getElementById('videoPlayer');
+            const streamUrl = 'http://' + window.location.hostname + ':8080/live/stream.m3u8';
+
+            if (Hls.isSupported()) {
+                const hls = new Hls({
+                    enableWorker: true,
+                    lowLatencyMode: true,
+                    backBufferLength: 90
+                });
+                
+                hls.loadSource(streamUrl);
+                hls.attachMedia(video);
+                
+                hls.on(Hls.Events.MANIFEST_PARSED, function() {
+                    console.log('HLS stream loaded');
+                });
+
+                hls.on(Hls.Events.ERROR, function(event, data) {
+                    if (data.fatal) {
+                        console.error('HLS error:', data);
+                        showOfflineOverlay();
+                    }
+                });
+            } else if (video.canPlayType('application/vnd.apple.mpegurl')) {
+                // Native HLS support (Safari)
+                video.src = streamUrl;
+            }
+        }
+
+        function checkStreamStatus() {
+            fetch('/api/stream/status')
+                .then(response => response.json())
+                .then(data => {
+                    const statusIndicator = document.querySelector('.status-indicator');
+                    const statusText = document.getElementById('statusText');
+                    const viewerCount = document.getElementById('viewerCount');
+                    const overlay = document.getElementById('playerOverlay');
+
+                    if (data.active) {
+                        statusIndicator.className = 'status-indicator online';
+                        statusText.textContent = 'Stream Online';
+                        viewerCount.textContent = `${data.viewers} viewers`;
+                        viewerCount.style.display = 'inline';
+                        overlay.style.display = 'none';
+                        
+                        // Update stream info
+                        document.getElementById('bitrate').textContent = data.bitrate_kbps + ' Kbps';
+                        document.getElementById('resolution').textContent = data.resolution;
+                        document.getElementById('fps').textContent = data.fps + ' fps';
+                        document.getElementById('streamInfo').style.display = 'flex';
+                    } else {
+                        statusIndicator.className = 'status-indicator offline';
+                        statusText.textContent = 'Stream Offline';
+                        viewerCount.style.display = 'none';
+                        overlay.style.display = 'flex';
+                        document.getElementById('streamInfo').style.display = 'none';
+                    }
+                })
+                .catch(err => console.error('Error checking stream status:', err));
+        }
+
+        function showOfflineOverlay() {
+            document.getElementById('playerOverlay').style.display = 'flex';
+        }
+
+        function copyToClipboard(elementId) {
+            const element = document.getElementById(elementId);
+            element.select();
+            document.execCommand('copy');
+            alert('Copied to clipboard!');
+        }
+
+        function checkAuth() {
+            const token = localStorage.getItem('authToken');
+            if (token) {
+                document.getElementById('loginLink').style.display = 'none';
+                document.getElementById('dashboardLink').style.display = 'inline';
+                document.getElementById('logoutLink').style.display = 'inline';
+            }
+        }
+    </script>
+</body>
+</html>
