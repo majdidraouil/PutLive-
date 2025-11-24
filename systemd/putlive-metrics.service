@@ -1,0 +1,43 @@
+[Unit]
+Description=PutLive Metrics Exporter
+Documentation=https://github.com/yourusername/putlive
+After=network-online.target putlive-api.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=putlive
+Group=putlive
+
+# Working directory
+WorkingDirectory=/opt/putlive/api
+
+# Environment
+Environment="PUTLIVE_CONFIG=/etc/putlive/config.yaml"
+Environment="METRICS_ONLY=true"
+
+# Start metrics exporter
+ExecStart=/opt/putlive/api/putlive-api -metrics
+
+# Restart policy
+Restart=always
+RestartSec=5s
+
+# Resource limits
+MemoryMax=50M
+CPUQuota=20%
+
+# Security hardening
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadOnlyPaths=/var/lib/putlive
+
+# Logging
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=putlive-metrics
+
+[Install]
+WantedBy=multi-user.target
