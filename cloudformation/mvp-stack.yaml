@@ -1,0 +1,403 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: 'PutLive v3.0 - Single-Server MVP Stack (t3.micro)'
+
+Parameters:
+  KeyName:
+    Type: AWS::EC2::KeyPair::KeyName
+    Description: EC2 Key Pair for SSH access
+    
+  AdminEmail:
+    Type: String
+    Description: Email address for alerts and notifications
+    AllowedPattern: '^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$'
+    
+  DomainName:
+    Type: String
+    Description: Optional domain name (leave empty for IP-only access)
+    Default: ''
+    
+  SSHSourceIP:
+    Type: String
+    Description: Source IP address for SSH access (use 0.0.0.0/0 for anywhere)
+    Default: '0.0.0.0/0'
+    AllowedPattern: '^(\d{1,3}\.){3}\d{1,3}/\d{1,2}$'
+
+Resources:
+  # VPC Configuration
+  PutLiveVPC:
+    Type: AWS::EC2::VPC
+    Properties:
+      CidrBlock: 10.0.0.0/16
+      EnableDnsHostnames: true
+      EnableDnsSupport: true
+      Tags:
+        - Key: Name
+          Value: PutLive-VPC
+
+  PutLiveInternetGateway:
+    Type: AWS::EC2::InternetGateway
+    Properties:
+      Tags:
+        - Key: Name
+          Value: PutLive-IGW
+
+  AttachGateway:
+    Type: AWS::EC2::VPCGatewayAttachment
+    Properties:
+      VpcId: !Ref PutLiveVPC
+      InternetGatewayId: !Ref PutLiveInternetGateway
+
+  PublicSubnet:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref PutLiveVPC
+      CidrBlock: 10.0.1.0/24
+      AvailabilityZone: !Select [0, !GetAZs '']
+      MapPublicIpOnLaunch: true
+      Tags:
+        - Key: Name
+          Value: PutLive-PublicSubnet
+
+  PublicRouteTable:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId: !Ref PutLiveVPC
+      Tags:
+        - Key: Name
+          Value: PutLive-PublicRT
+
+  PublicRoute:
+    Type: AWS::EC2::Route
+    DependsOn: AttachGateway
+    Properties:
+      RouteTableId: !Ref PublicRouteTable
+      DestinationCidrBlock: 0.0.0.0/0
+      GatewayId: !Ref PutLiveInternetGateway
+
+  SubnetRouteTableAssociation:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId: !Ref PublicSubnet
+      RouteTableId: !Ref PublicRouteTable
+
+  # Security Group
+  PutLiveSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupName: putlive-sg
+      GroupDescription: Security group for PutLive server
+      VpcId: !Ref PutLiveVPC
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 22
+          ToPort: 22
+          CidrIp: !Ref SSHSourceIP
+          Description: SSH access
+        - IpProtocol: tcp
+          FromPort: 80
+          ToPort: 80
+          CidrIp: 0.0.0.0/0
+          Description: HTTP
+        - IpProtocol: tcp
+          FromPort: 443
+          ToPort: 443
+          CidrIp: 0.0.0.0/0
+          Description: HTTPS
+        - IpProtocol: tcp
+          FromPort: 1935
+          ToPort: 1935
+          CidrIp: 0.0.0.0/0
+          Description: RTMP
+      SecurityGroupEgress:
+        - IpProtocol: -1
+          CidrIp: 0.0.0.0/0
+          Description: Allow all outbound
+      Tags:
+        - Key: Name
+          Value: PutLive-SG
+
+  # IAM Role for EC2
+  PutLiveEC2Role:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: putlive-ec2-role
+      AssumeRolePolicyDocument:
+        Version: '2012-10-09'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: ec2.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/CloudWatchAgentServerPolicy
+      Policies:
+        - PolicyName: PutLiveS3Access
+          PolicyDocument:
+            Version: '2012-10-09'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - s3:PutObject
+                  - s3:GetObject
+                  - s3:DeleteObject
+                  - s3:ListBucket
+                Resource:
+                  - !Sub '${BackupBucket.Arn}'
+                  - !Sub '${BackupBucket.Arn}/*'
+        - PolicyName: PutLiveSNSPublish
+          PolicyDocument:
+            Version: '2012-10-09'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - sns:Publish
+                Resource: !Ref AlertTopic
+
+  PutLiveInstanceProfile:
+    Type: AWS::IAM::InstanceProfile
+    Properties:
+      Roles:
+        - !Ref PutLiveEC2Role
+
+  # S3 Bucket for Backups
+  BackupBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName: !Sub 'putlive-backups-${AWS::AccountId}'
+      VersioningConfiguration:
+        Status: Enabled
+      LifecycleConfiguration:
+        Rules:
+          - Id: TransitionToGlacier
+            Status: Enabled
+            Transitions:
+              - TransitionInDays: 30
+                StorageClass: GLACIER
+          - Id: DeleteOldVersions
+            Status: Enabled
+            NoncurrentVersionExpirationInDays: 90
+      BucketEncryption:
+        ServerSideEncryptionConfiguration:
+          - ServerSideEncryptionByDefault:
+              SSEAlgorithm: AES256
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+
+  # SNS Topic for Alerts
+  AlertTopic:
+    Type: AWS::SNS::Topic
+    Properties:
+      TopicName: putlive-alerts
+      DisplayName: PutLive Alerts
+      Subscription:
+        - Endpoint: !Ref AdminEmail
+          Protocol: email
+
+  # Elastic IP
+  PutLiveEIP:
+    Type: AWS::EC2::EIP
+    Properties:
+      Domain: vpc
+      Tags:
+        - Key: Name
+          Value: PutLive-EIP
+
+  # EC2 Instance
+  PutLiveInstance:
+    Type: AWS::EC2::Instance
+    DependsOn:
+      - AttachGateway
+    Properties:
+      InstanceType: t3.micro
+      ImageId: !Sub '{{resolve:ssm:/aws/service/canonical/ubuntu/server/22.04/stable/current/amd64/hvm/ebs-gp2/ami-id}}'
+      KeyName: !Ref KeyName
+      IamInstanceProfile: !Ref PutLiveInstanceProfile
+      NetworkInterfaces:
+        - AssociatePublicIpAddress: true
+          DeviceIndex: 0
+          GroupSet:
+            - !Ref PutLiveSecurityGroup
+          SubnetId: !Ref PublicSubnet
+      BlockDeviceMappings:
+        - DeviceName: /dev/sda1
+          Ebs:
+            VolumeSize: 30
+            VolumeType: gp3
+            DeleteOnTermination: true
+            Encrypted: true
+      UserData:
+        Fn::Base64: !Sub |
+          #!/bin/bash
+          set -euxo pipefail
+          
+          # Update system
+          apt-get update
+          DEBIAN_FRONTEND=noninteractive apt-get upgrade -y
+          
+          # Install git
+          apt-get install -y git curl
+          
+          # Clone repository
+          cd /tmp
+          git clone https://github.com/majdidraouil/PutLive-.git putlive
+          cd putlive
+          
+          # Run installation script
+          chmod +x install-production.sh
+          ./install-production.sh \
+            --auto \
+            --email ${AdminEmail} \
+            --swap \
+            --auth \
+            --monitoring
+          
+          # Configure CloudWatch agent
+          cat > /opt/aws/amazon-cloudwatch-agent/etc/config.json << 'CWEOF'
+          {
+            "metrics": {
+              "namespace": "PutLive/Production",
+              "metrics_collected": {
+                "cpu": {
+                  "measurement": [{"name": "cpu_usage_active", "rename": "CPUUtilization", "unit": "Percent"}],
+                  "metrics_collection_interval": 60
+                },
+                "disk": {
+                  "measurement": [{"name": "used_percent", "rename": "DiskUsed", "unit": "Percent"}],
+                  "metrics_collection_interval": 300
+                },
+                "mem": {
+                  "measurement": [{"name": "mem_used", "rename": "MemoryUsed", "unit": "Bytes"}],
+                  "metrics_collection_interval": 60
+                }
+              }
+            }
+          }
+          CWEOF
+          
+          # Start CloudWatch agent
+          /opt/aws/amazon-cloudwatch-agent/bin/amazon-cloudwatch-agent-ctl \
+            -a fetch-config \
+            -m ec2 \
+            -s \
+            -c file:/opt/aws/amazon-cloudwatch-agent/etc/config.json
+          
+          # Set backup S3 bucket in config
+          sed -i "s/ACCOUNT_ID/${AWS::AccountId}/g" /etc/putlive/config.yaml
+          
+          # Signal success
+          /usr/local/bin/cfn-signal -e $? --stack ${AWS::StackName} --resource PutLiveInstance --region ${AWS::Region}
+          
+      Tags:
+        - Key: Name
+          Value: PutLive-Server
+    CreationPolicy:
+      ResourceSignal:
+        Count: 1
+        Timeout: PT15M
+
+  EIPAssociation:
+    Type: AWS::EC2::EIPAssociation
+    Properties:
+      InstanceId: !Ref PutLiveInstance
+      EIP: !Ref PutLiveEIP
+
+  # CloudWatch Alarms
+  HighCPUAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmName: PutLive-HighCPU
+      AlarmDescription: Alert when CPU exceeds 80%
+      MetricName: CPUUtilization
+      Namespace: AWS/EC2
+      Statistic: Average
+      Period: 300
+      EvaluationPeriods: 2
+      Threshold: 80
+      ComparisonOperator: GreaterThanThreshold
+      Dimensions:
+        - Name: InstanceId
+          Value: !Ref PutLiveInstance
+      AlarmActions:
+        - !Ref AlertTopic
+
+  HighMemoryAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmName: PutLive-HighMemory
+      AlarmDescription: Alert when memory usage exceeds 850 MB
+      MetricName: MemoryUsed
+      Namespace: PutLive/Production
+      Statistic: Average
+      Period: 300
+      EvaluationPeriods: 2
+      Threshold: 870000000
+      ComparisonOperator: GreaterThanThreshold
+      AlarmActions:
+        - !Ref AlertTopic
+
+  HighDiskAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmName: PutLive-HighDisk
+      AlarmDescription: Alert when disk usage exceeds 80%
+      MetricName: DiskUsed
+      Namespace: PutLive/Production
+      Statistic: Average
+      Period: 300
+      EvaluationPeriods: 1
+      Threshold: 80
+      ComparisonOperator: GreaterThanThreshold
+      AlarmActions:
+        - !Ref AlertTopic
+
+  StatusCheckAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmName: PutLive-StatusCheck
+      AlarmDescription: Alert on instance status check failure
+      MetricName: StatusCheckFailed
+      Namespace: AWS/EC2
+      Statistic: Maximum
+      Period: 60
+      EvaluationPeriods: 2
+      Threshold: 0
+      ComparisonOperator: GreaterThanThreshold
+      Dimensions:
+        - Name: InstanceId
+          Value: !Ref PutLiveInstance
+      AlarmActions:
+        - !Ref AlertTopic
+
+Outputs:
+  PublicIP:
+    Description: Public IP address of PutLive server
+    Value: !Ref PutLiveEIP
+    Export:
+      Name: !Sub '${AWS::StackName}-PublicIP'
+      
+  DashboardURL:
+    Description: Dashboard URL
+    Value: !Sub 'http://${PutLiveEIP}'
+    
+  RTMPURL:
+    Description: RTMP server URL
+    Value: !Sub 'rtmp://${PutLiveEIP}/live'
+    
+  HLSURL:
+    Description: HLS playback URL
+    Value: !Sub 'http://${PutLiveEIP}:8080/live/stream.m3u8'
+    
+  SSHCommand:
+    Description: SSH command to connect
+    Value: !Sub 'ssh -i ${KeyName}.pem ubuntu@${PutLiveEIP}'
+    
+  BackupBucket:
+    Description: S3 bucket for backups
+    Value: !Ref BackupBucket
+    
+  AlertTopic:
+    Description: SNS topic for alerts
+    Value: !Ref AlertTopic
