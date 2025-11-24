@@ -1,0 +1,68 @@
+[Unit]
+Description=SRS Media Server (Production)
+Documentation=https://github.com/ossrs/srs
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=forking
+PIDFile=/var/run/srs.pid
+User=root
+Group=root
+
+# Working directory
+WorkingDirectory=/usr/local/srs
+
+# Pre-start checks and setup
+ExecStartPre=/bin/mkdir -p /dev/shm/srs
+ExecStartPre=/bin/chmod 777 /dev/shm/srs
+ExecStartPre=/bin/mkdir -p /var/log/putlive
+ExecStartPre=/bin/mkdir -p /var/www/putlive
+ExecStartPre=/usr/local/srs/objs/srs -t -c /usr/local/srs/conf/putlive.conf
+
+# Start SRS
+ExecStart=/usr/local/srs/objs/srs -c /usr/local/srs/conf/putlive.conf
+
+# Graceful reload (sends SIGHUP)
+ExecReload=/bin/kill -HUP $MAINPID
+
+# Stop with grace period
+ExecStop=/bin/kill -TERM $MAINPID
+TimeoutStopSec=30
+
+# Restart policy
+Restart=always
+RestartSec=10s
+StartLimitBurst=5
+StartLimitIntervalSec=300
+
+# Watchdog configuration
+WatchdogSec=30
+NotifyAccess=main
+
+# Resource limits (prevent runaway)
+MemoryMax=400M
+MemoryHigh=300M
+CPUQuota=80%
+TasksMax=200
+LimitNOFILE=10000
+LimitNPROC=100
+
+# Security hardening
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/dev/shm/srs /var/log/putlive /var/run /var/www/putlive /var/lib/putlive/recordings
+ProtectKernelTunables=true
+ProtectControlGroups=true
+RestrictRealtime=true
+RestrictNamespaces=true
+
+# Logging
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=srs
+
+[Install]
+WantedBy=multi-user.target
